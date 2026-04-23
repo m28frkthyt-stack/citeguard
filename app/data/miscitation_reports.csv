@@ -1,0 +1,6 @@
+"report_id","submitted_at","reporter_role","reporter_orcid","own_work_doi","citing_work_doi","target_author_last_names","target_lead_author","target_author_key","target_publication_year","target_title_clue","target_title_key","mistake_codes","mistake_titles","quoted_or_paraphrased_text","why_incorrect"
+"20260408095643_a22a54c3f6","2026-04-08 09:56:43","Reader","","10.1177/0956797614553009","http://dx.doi.org/10.3389/fpsyg.2023.1200065","ko; sadler; galinsky","ko","ko|sadler|galinsky","2015","The Sound of Power","sound|power","M1","Direct contradiction of finding","In this regard, Ko et al. (2015) observed that participants who were assigned to a more powerful role in a negotiation game showed a lower and more monotone pitch than participants assigned to a less powerful role.","It is wrong because Ko et al found that they had higher pitch. 
+
+""Speakers’ voices in the
+high-rank condition had higher pitch, F(1, 156) = 4.48,
+p < .05; """
