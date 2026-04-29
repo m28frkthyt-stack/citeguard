@@ -5,6 +5,13 @@ LOCK_PATH <- paste0(DB_PATH, ".lock")
 
 dir.create(DB_DIR, showWarnings = FALSE, recursive = TRUE)
 
+GH_OWNER   <- "mink-veltman"
+GH_REPO    <- "citeguard-data"
+GH_FILE    <- "miscitation_reports.csv"
+GH_BRANCH  <- "master"
+GH_API_URL <- paste0("https://api.github.com/repos/", GH_OWNER, "/", GH_REPO, "/contents/", GH_FILE)
+GH_RAW_URL <- paste0("https://raw.githubusercontent.com/", GH_OWNER, "/", GH_REPO, "/", GH_BRANCH, "/", GH_FILE)
+
 db_cols <- c(
   "report_id",
   "submitted_at",
@@ -149,30 +156,55 @@ append_row_safely <- function(row_df) {
 
   out <- out[, db_cols, drop = FALSE]
   write.csv(out, DB_PATH, row.names = FALSE, na = "")
-
-  git_commit_and_push(
-    report_id = row_df$report_id[1],
-    doi       = row_df$own_work_doi[1],
-    is_update = length(match_idx) > 0
-  )
+  invisible(out)
 }
 
-git_commit_and_push <- function(report_id, doi, is_update = FALSE) {
+sync_db_from_github <- function() {
   tryCatch({
-    db_abs    <- normalizePath(DB_PATH, mustWork = FALSE)
-    repo_root <- trimws(system2("git", c("rev-parse", "--show-toplevel"),
-                                stdout = TRUE, stderr = FALSE))
-    if (!length(repo_root) || !nzchar(repo_root)) return(invisible(FALSE))
+    df <- read.csv(GH_RAW_URL, stringsAsFactors = FALSE, na.strings = c("", "NA"), check.names = FALSE)
+    write.csv(df, DB_PATH, row.names = FALSE, na = "")
+  }, error = function(e) {
+    message("GitHub DB read failed (using local copy): ", conditionMessage(e))
+  })
+}
 
-    rel_path <- sub(paste0(repo_root, .Platform$file.sep), "", db_abs, fixed = TRUE)
-    action   <- if (is_update) "update" else "submission"
-    msg      <- sprintf("%s: %s — cited: %s", action, report_id, doi)
+push_db_to_github <- function(df, commit_msg) {
+  pat <- Sys.getenv("GITHUB_PAT")
+  if (!nzchar(pat)) return("GitHub sync skipped: GITHUB_PAT not set")
 
-    system2("git", c("-C", repo_root, "add", rel_path),   stdout = FALSE, stderr = FALSE)
-    system2("git", c("-C", repo_root, "commit", "-m", msg), stdout = FALSE, stderr = FALSE)
-    system2("git", c("-C", repo_root, "push"),             stdout = FALSE, stderr = FALSE)
-    invisible(TRUE)
-  }, error = function(e) invisible(FALSE))
+  tryCatch({
+    sha_resp <- request(GH_API_URL) |>
+      req_headers(Authorization = paste("token", pat),
+                  Accept        = "application/vnd.github.v3+json") |>
+      req_error(is_error = \(r) FALSE) |>
+      req_perform()
+    sha <- if (resp_status(sha_resp) == 200) resp_body_json(sha_resp)$sha else NULL
+
+    tmp <- tempfile(fileext = ".csv")
+    on.exit(unlink(tmp), add = TRUE)
+    write.csv(df, tmp, row.names = FALSE, na = "")
+    encoded <- base64encode(readBin(tmp, "raw", file.info(tmp)$size))
+
+    body <- list(message = commit_msg, content = encoded, branch = GH_BRANCH)
+    if (!is.null(sha)) body$sha <- sha
+
+    put_resp <- request(GH_API_URL) |>
+      req_headers(Authorization = paste("token", pat),
+                  Accept        = "application/vnd.github.v3+json") |>
+      req_body_json(body) |>
+      req_method("PUT") |>
+      req_error(is_error = \(r) FALSE) |>
+      req_perform()
+
+    if (resp_status(put_resp) %in% c(200L, 201L)) {
+      "GitHub synced"
+    } else {
+      paste0("GitHub sync failed (HTTP ", resp_status(put_resp), "): ",
+             resp_body_string(put_resp))
+    }
+  }, error = function(e) {
+    paste0("GitHub sync error: ", conditionMessage(e))
+  })
 }
 
 erase_database_safely <- function() {
@@ -190,9 +222,11 @@ erase_database_safely <- function() {
     file.copy(DB_PATH, backup_path, overwrite = TRUE)
   }
 
-  write.csv(empty_db_frame(), DB_PATH, row.names = FALSE, na = "")
+  empty <- empty_db_frame()
+  write.csv(empty, DB_PATH, row.names = FALSE, na = "")
+  gh_status <- push_db_to_github(empty, "erase: database cleared")
 
-  backup_path
+  list(backup_path = backup_path, gh_status = gh_status)
 }
 
 summarise_known_miscitations <- function(db) {
@@ -209,26 +243,31 @@ summarise_known_miscitations <- function(db) {
     ))
   }
 
-  db2 <- db %>%
+  db2 <- db |>
+    dplyr::rowwise() |>
     dplyr::mutate(
-      target_author_key = ifelse(is.na(target_author_key) | !nzchar(trimws(target_author_key)), NA_character_, as.character(target_author_key)),
-      target_lead_author = normalize_last_name(target_lead_author),
+      target_author_key = make_author_key(extract_last_names_from_ref_authors(target_author_last_names)),
+      target_lead_author = {
+        tmp <- extract_last_names_from_ref_authors(target_author_last_names)
+        if (length(tmp) > 0) normalize_last_name(tmp[1]) else NA_character_
+      },
       target_publication_year = as.character(target_publication_year),
-      target_title_key = ifelse(is.na(target_title_key) | !nzchar(trimws(target_title_key)), NA_character_, as.character(target_title_key))
-    )
+      target_title_key = make_title_key(target_title_clue)
+    ) |>
+    dplyr::ungroup()
 
-  db2 %>%
+  db2 |>
     dplyr::filter(
       !is.na(target_author_key) |
         !is.na(target_lead_author) |
         !is.na(target_title_key)
-    ) %>%
+    ) |>
     dplyr::group_by(
       target_author_key,
       target_lead_author,
       target_publication_year,
       target_title_key
-    ) %>%
+    ) |>
     dplyr::summarise(
       target_author_last_names = dplyr::first(target_author_last_names),
       report_count = dplyr::n(),
@@ -241,6 +280,6 @@ summarise_known_miscitations <- function(db) {
         paste(parts, collapse = " || ")
       },
       .groups = "drop"
-    ) %>%
+    ) |>
     dplyr::arrange(dplyr::desc(report_count), target_author_last_names)
 }

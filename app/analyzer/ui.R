@@ -1,5 +1,5 @@
 ui <- fluidPage(
-  useShinyjs(),
+  shinyjs::useShinyjs(),
   tags$head(
     tags$style(HTML("
       .dataTables_wrapper .dt-buttons { margin-bottom: 10px; }
@@ -78,11 +78,11 @@ ui <- fluidPage(
           ),
           actionLink("toggle_known_tbl", label = "Show")
         ),
-        div(id = "known_tbl_body", class = "collapsed-body", DTOutput("known_miscited_table"))
+        div(id = "known_tbl_body", class = "collapsed-body", DT::DTOutput("known_miscited_table"))
       ),
 
       tabsetPanel(
-        tabPanel("Results",     DTOutput("results_table")),
+        tabPanel("Results",     DT::DTOutput("results_table")),
         tabPanel("Live log",    verbatimTextOutput("live_log")),
         tabPanel("Diagnostics", verbatimTextOutput("diagnostic_text")),
         tabPanel("Status",      verbatimTextOutput("status_text"))

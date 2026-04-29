@@ -187,7 +187,7 @@ server <- function(input, output, session) {
             pdf_path   = pdf_path,
             pdf_name   = pdf_name,
             grobid_url = grobid_url
-          ) %>% dplyr::mutate(source_upload = source_upload, .before = file)
+          ) |> dplyr::mutate(source_upload = source_upload, .before = file)
 
           append_log("Rows extracted for ", pdf_name, ": ", nrow(out))
           append_log("Non-empty citations: ", sum(!is.na(out$citation) & nzchar(out$citation)))
@@ -233,7 +233,7 @@ server <- function(input, output, session) {
     if (nrow(dat) == 0) return(dat)
 
     if (nzchar(trimws(input$citation_filter))) {
-      dat <- dat %>%
+      dat <- dat |>
         dplyr::filter(stringr::str_detect(
           dplyr::coalesce(citation, ""),
           stringr::regex(trimws(input$citation_filter), ignore_case = TRUE)
@@ -241,7 +241,7 @@ server <- function(input, output, session) {
     }
 
     if (nzchar(trimws(input$author_filter))) {
-      dat <- dat %>%
+      dat <- dat |>
         dplyr::filter(
           stringr::str_detect(dplyr::coalesce(ref_authors, ""),            stringr::regex(trimws(input$author_filter), ignore_case = TRUE)) |
           stringr::str_detect(dplyr::coalesce(ref_author_last_names, ""), stringr::regex(trimws(input$author_filter), ignore_case = TRUE))
@@ -249,7 +249,7 @@ server <- function(input, output, session) {
     }
 
     if (isTRUE(input$only_known_miscited)) {
-      dat <- dat %>% dplyr::filter(db_known_miscited_paper == "Yes")
+      dat <- dat |> dplyr::filter(db_known_miscited_paper == "Yes")
     }
 
     dat

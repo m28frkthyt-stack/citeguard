@@ -250,7 +250,7 @@ collect_uploaded_pdfs <- function(upload_df) {
   pdf_tbl <- if (length(out) == 0) {
     tibble::tibble(pdf_path = character(), pdf_name = character(), source_upload = character())
   } else {
-    dplyr::bind_rows(out) %>% dplyr::distinct(pdf_path, .keep_all = TRUE)
+    dplyr::bind_rows(out) |> dplyr::distinct(pdf_path, .keep_all = TRUE)
   }
 
   list(pdfs = pdf_tbl, messages = messages)
@@ -277,7 +277,7 @@ extract_citation_contexts <- function(pdf_path, pdf_name, grobid_url, window = 3
   if (is.null(xrefs_all) || nrow(xrefs_all) == 0)
     return(empty_ctx("No xrefs found in parsed paper."))
 
-  xrefs <- xrefs_all %>% dplyr::filter(type == "bibr")
+  xrefs <- xrefs_all |> dplyr::filter(type == "bibr")
 
   if (nrow(xrefs) == 0)
     return(empty_ctx(paste0(
@@ -286,14 +286,14 @@ extract_citation_contexts <- function(pdf_path, pdf_name, grobid_url, window = 3
     )))
 
   bib_tbl <- if (!is.null(bib_all) && nrow(bib_all) > 0) {
-    bib_all %>%
+    bib_all |>
       dplyr::mutate(
         ref_authors = purrr::map_chr(authors, collapse_authors),
         ref_title   = as.character(title %||% NA_character_),
         ref_year    = as.character(year  %||% NA),
         ref_doi     = as.character(doi   %||% NA)
-      ) %>%
-      dplyr::rowwise() %>%
+      ) |>
+      dplyr::rowwise() |>
       dplyr::mutate(
         ref_author_last_names = paste(extract_last_names_from_ref_authors(ref_authors), collapse = "; "),
         ref_author_key        = make_author_key(extract_last_names_from_ref_authors(ref_authors)),
@@ -302,8 +302,8 @@ extract_citation_contexts <- function(pdf_path, pdf_name, grobid_url, window = 3
           if (length(tmp) > 0) tmp[1] else NA_character_
         },
         ref_title_key = make_title_key(ref_title)
-      ) %>%
-      dplyr::ungroup() %>%
+      ) |>
+      dplyr::ungroup() |>
       dplyr::select(dplyr::any_of(c(
         "xref_id", "ref_title", "ref_authors", "ref_author_last_names",
         "ref_author_key", "ref_lead_author", "ref_title_key", "ref_year", "ref_doi"
@@ -319,8 +319,8 @@ extract_citation_contexts <- function(pdf_path, pdf_name, grobid_url, window = 3
 
   citation_vec <- as.character(xrefs$contents %||% NA_character_)
 
-  out <- xrefs %>%
-    dplyr::left_join(bib_tbl, by = "xref_id") %>%
+  out <- xrefs |>
+    dplyr::left_join(bib_tbl, by = "xref_id") |>
     dplyr::transmute(
       file    = pdf_name,
       citation = citation_vec,
@@ -375,18 +375,18 @@ extract_citation_contexts <- function(pdf_path, pdf_name, grobid_url, window = 3
 
   expanded_out <- tryCatch({
     results <- lapply(out$sentence, find_and_expand, sents = sent_list, w = window)
-    out %>% dplyr::mutate(
+    out |> dplyr::mutate(
       expanded_text   = vapply(results, `[[`, character(1), "expanded"),
       target_sentence = vapply(results, `[[`, character(1), "target")
     )
   }, error = function(e) {
-    out %>% dplyr::mutate(
+    out |> dplyr::mutate(
       note = dplyr::coalesce(note, paste("Expansion failed:", conditionMessage(e))),
       target_sentence = NA_character_
     )
   })
 
-  expanded_out %>%
+  expanded_out |>
     dplyr::mutate(
       citation = {
         cit_raw  <- dplyr::coalesce(as.character(citation), "")
@@ -405,7 +405,7 @@ annotate_with_db_matches <- function(citation_df, known_df) {
   if (is.null(citation_df) || nrow(citation_df) == 0) return(citation_df)
 
   if (is.null(known_df) || nrow(known_df) == 0) {
-    return(citation_df %>%
+    return(citation_df |>
              dplyr::mutate(
                db_known_miscited_paper     = "No",
                db_match_score              = 0L,
@@ -426,8 +426,8 @@ annotate_with_db_matches <- function(citation_df, known_df) {
     ref_names <- unlist(strsplit(row$ref_author_last_names %||% "", ";\\s*"))
     ref_names <- ref_names[nzchar(ref_names)]
 
-    candidates <- known_df %>%
-      dplyr::rowwise() %>%
+    candidates <- known_df |>
+      dplyr::rowwise() |>
       dplyr::mutate(
         target_names_vec  = list(unlist(strsplit(target_author_last_names %||% "", ";\\s*"))),
         fuzzy_overlap     = fuzzy_author_overlap(ref_names, target_names_vec[[1]], max_compare = 3),
@@ -451,8 +451,8 @@ annotate_with_db_matches <- function(citation_df, known_df) {
           intext_lead_match * 1L +
           year_score +
           ifelse(title_overlap >= 2, 2L, ifelse(title_overlap == 1, 1L, 0L))
-      ) %>%
-      dplyr::ungroup() %>%
+      ) |>
+      dplyr::ungroup() |>
       dplyr::arrange(dplyr::desc(score), dplyr::desc(report_count))
 
     best  <- candidates[1, , drop = FALSE]
@@ -465,7 +465,7 @@ annotate_with_db_matches <- function(citation_df, known_df) {
     if (!is.na(best$year_score)        && best$year_score >= 2)        reason_bits <- c(reason_bits, "year")
     if (!is.na(best$title_overlap)     && best$title_overlap >= 1)     reason_bits <- c(reason_bits, "title")
 
-    out_rows[[i]] <- row %>%
+    out_rows[[i]] <- row |>
       dplyr::mutate(
         db_known_miscited_paper = ifelse(
           score >= 5 & (is.na(best$target_title_key) | best$title_overlap >= 1),
@@ -484,6 +484,6 @@ annotate_with_db_matches <- function(citation_df, known_df) {
       )
   }
 
-  dplyr::bind_rows(out_rows) %>%
+  dplyr::bind_rows(out_rows) |>
     dplyr::arrange(dplyr::desc(db_known_miscited_paper == "Yes"), dplyr::desc(db_match_score), dplyr::desc(db_report_count), file, p, s)
 }
